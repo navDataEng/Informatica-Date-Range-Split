@@ -47,11 +47,12 @@ This repository demonstrates three different approaches to transforming date ran
 ## Folder Structure
 ```
 📂 Informatica-Date-Range-Split
- ├── 📂 Mappings            # XML files of Informatica mappings
- ├── 📂 Workflows           # XML exports of Informatica workflows
- ├── 📂 SQL_Scripts         # SQL scripts used in the stored procedure approach
- ├── 📂 Sample_Input        # Sample input files
- ├── 📂 Sample_Output       # Expected output files
+ ├── 📂 Mappings            # XML export files of Informatica mappings
+ ├── 📂 Workflows           # XML export files of Informatica workflows
+ ├── 📂 Images              # Screenshots of mappings, workflows, and results
+ ├── 📂 SQL_Scripts         # SQL scripts used in the stored procedure and SQL approach
+ ├── 📂 Source_Data         # Sample source data files 
+ ├── 📂 Target_Data         # Expected target data files
  ├── README.md              # Documentation
 ```
 
