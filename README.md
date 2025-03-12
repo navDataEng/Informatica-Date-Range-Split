@@ -8,10 +8,6 @@ Example:
 ```
 ID,Start_Date,End_Date
 106,02/21/2022,05/15/2025
-107,06/19/2023,04/26/2024
-108,08/24/2018,03/27/2024
-109,04/16/2002,06/13/2015
-110,05/26/2024,06/13/2024
 ```
 
 ## Expected Output Format
@@ -21,28 +17,20 @@ Example:
 106    01-JAN-23    31-DEC-23
 106    01-JAN-24    31-DEC-24
 106    01-JAN-25    15-MAY-25
-107    19-JUN-23    31-DEC-23
-107    01-JAN-24    26-APR-24
-...
 ```
 ## **Approaches Implemented**  
 
 This repository demonstrates three different approaches to transforming date ranges into yearly records using **Informatica PowerCenter**. Each approach varies in implementation, leveraging different components to generate and process the required records efficiently.  
 
-### **1. Informatica-Only Approach (Normalizer + Expression Transformation)**  
-- Used **Normalizer Transformation** to generate multiple records for each date range.  
-- Applied **Expression Transformation** to compute and adjust `Start_Date` and `End_Date` for each yearly split.  
-- Filtered out unnecessary records based on the difference between the `Start_Date` and `End_Date`.
-
 ### 1. Normalizer Approach
 
-#### Overview
+#### *Overview*
 This document explains the Normalizer approach used to split date ranges in an Informatica mapping. The approach involves various transformations to achieve the required data transformation while handling limitations.
 
-#### Pipeline Flow
+#### *Pipeline Flow*
 ![Normalizer Flow](images/Date_Split_Normalizer_Mapping.png)
 
-#### Step-by-Step Transformation Details
+#### *Step-by-Step Transformation Details*
 
 1. **Source Definition (flat_date2 - Flat File)**
    - Reads input data from a flat file.
@@ -95,22 +83,170 @@ This document explains the Normalizer approach used to split date ranges in an I
 8. **Target Definition (FLAT_DATE21 - Oracle)**
    - The final processed records are written to the target table.
 
-### Key Considerations
+#### *Key Considerations*
 - **Normalizer Limitation:** The occurrence value must be carefully chosen to avoid losing records with `Years_Diff` exceeding the threshold.
 - **Date Handling:** String conversion of date fields is necessary before and after the Normalizer transformation to maintain proper data format.
 - **Filtering Logic:** Ensure the filter transformation retains only the necessary records to optimize performance and avoid unnecessary data processing.
 
-This approach provides a structured way to split date ranges while handling multiple occurrences and transformations effectively.
 
-### **2. SQL Query Approach (SQL Transformation)**  
-- Wrote an SQL query to handle the expansion of date ranges into yearly records.  
-- Used **SQL Transformation** in **Informatica PowerCenter** to execute this query dynamically.  
-- Passed required field values from the source file to the transformation and directed the output to the target table.  
+### 2. SQL Transformation Approach  
 
-### **3. Stored Procedure Approach (Recursive CTE + Temp Table)**  
-- Developed a **Stored Procedure** using **Recursive CTE** to generate yearly records from the given date range.  
-- Called this procedure from **Informatica PowerCenter** within the mapping flow.  
-- The procedure processed and inserted the transformed data into a **temporary table**, which was then read and written to the target table in the next flow.  
+#### *Overview*  
+This approach utilizes an **SQL transformation** to split date ranges into multiple records dynamically. The transformation leverages a **recursive SQL query** to generate new records while modifying the start and end dates accordingly.  
+
+#### *Pipeline Flow*
+![SQL Flow](images/Date_Split_SQL_Mapping.png)
+
+#### *Workflow*  
+1. **Source Definition:** Reads data from the source, which includes ID, Start Date, and End Date.  
+2. **Source Qualifier:** Passes the source data downstream.  
+3. **Expression Transformation:** Transfers values to ensure compatibility with the SQL transformation.  
+4. **SQL Transformation:**  
+   - Processes the input using an **SQL query** to generate new records.  
+   - Dynamically calculates new Start and End dates based on yearly intervals.  
+5. **Target Definition:** Writes the transformed records into the target table.  
+
+### *SQL Query Used in SQL Transformation*  
+   ```sql
+   SELECT o_ID, o_Start_Date, o_End_Date 
+   FROM (
+       SELECT 
+           ID AS o_ID,
+           CASE 
+               WHEN LEVEL = 1 THEN Start_Date 
+               ELSE TRUNC(Start_Date, 'YYYY') + (LEVEL - 1) * INTERVAL '1' YEAR 
+           END AS o_Start_Date,
+           CASE 
+               WHEN EXTRACT(YEAR FROM (TRUNC(Start_Date, 'YYYY') + (LEVEL - 1) * INTERVAL '1' YEAR)) = 
+                    EXTRACT(YEAR FROM End_Date) 
+               THEN End_Date 
+               ELSE TO_DATE('12/31/' || EXTRACT(YEAR FROM (TRUNC(Start_Date, 'YYYY') + (LEVEL - 1) * INTERVAL '1' YEAR)), 'MM/DD/YYYY') 
+           END AS o_End_Date
+       FROM (SELECT ?ID? AS ID, ?Start_Date? AS Start_Date, ?End_Date? AS End_Date FROM DUAL)
+       CONNECT BY TRUNC(Start_Date, 'YYYY') + (LEVEL - 1) * INTERVAL '1' YEAR <= TRUNC(End_Date, 'YYYY')
+   );
+   ```  
+
+#### **Key Highlights**  
+- Uses **CONNECT BY LEVEL** to create multiple records per input row.  
+- **CASE statements** dynamically adjust Start and End dates.  
+
+
+### Stored Procedure Approach
+
+#### *Overview*  
+This approach utilizes a **stored procedure** to process date ranges efficiently. The procedure dynamically **splits the date range** into multiple records using a **loop-based mechanism** and inserts the generated data into a temporary table in the target database. The process consists of two flows:  
+1. **Flow 1:** Reads data from a source file and passes it to the stored procedure, which processes and inserts records into a temporary table.  
+2. **Flow 2:** Reads processed records from the temporary table and loads them into the final target table.  
+
+#### *Workflow* 
+
+#### *Flow 1: Data Ingestion & Processing*
+
+![Stored Procedure Flow](images/Date_Split_SP1_Mapping.png)
+
+1. **Source Definition:** Reads data from a source file containing ID, Start Date, and End Date.  
+2. **Source Qualifier:** Passes the data downstream.  
+3. **Stored Procedure Transformation:**  
+   - Calls a **stored procedure** that:  
+     - Iterates through the years between the Start and End Dates.  
+     - Generates new records with the appropriate Start and End Dates.  
+     - Inserts processed records into a temporary table.  
+
+#### *Flow 2: Final Data Load*  
+
+![Stored Procedure Flow](images/Date_Split_SP2_Mapping.png)
+
+1. **Source Definition:** Reads data from the temporary table in the database.  
+2. **Source Qualifier:** Passes the processed data downstream.  
+3. **Target Definition:** Writes the transformed records into the final table.  
+
+### *Stored Procedure for Processing Date Data*  
+```sql
+CREATE OR REPLACE PROCEDURE ProcessDateData (
+    p_id IN NUMBER, 
+    p_start_date IN DATE, 
+    p_end_date IN DATE, 
+    o_id OUT NUMBER, 
+    o_generated_start_date OUT DATE, 
+    o_generated_end_date OUT DATE
+)
+IS
+    v_year_value NUMBER;
+    v_start_date DATE;
+    v_end_date DATE;
+BEGIN
+    -- Initialize variables
+    v_start_date := p_start_date;
+    v_year_value := EXTRACT(YEAR FROM p_start_date);
+
+    -- Loop through each year until End_Date is reached
+    WHILE v_year_value <= EXTRACT(YEAR FROM p_end_date) LOOP
+        -- Assign output values for Informatica mapping
+        o_id := p_id;
+        o_generated_start_date := v_start_date;
+
+        -- Determine the end date for the current iteration
+        IF v_year_value = EXTRACT(YEAR FROM p_end_date) THEN
+            o_generated_end_date := p_end_date;
+        ELSE
+            o_generated_end_date := TO_DATE('12/31/' || v_year_value, 'MM/DD/YYYY');
+        END IF;
+
+        -- Insert into temporary table
+        INSERT INTO core.processeddatetable 
+        VALUES (o_id, o_generated_start_date, o_generated_end_date, sysdate);
+
+        -- Move to the next year
+        v_year_value := v_year_value + 1;
+        v_start_date := TO_DATE('01/01/' || v_year_value, 'MM/DD/YYYY');
+
+        -- Exit loop if start date exceeds the end date
+        EXIT WHEN v_start_date > p_end_date;
+    END LOOP;
+
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+        ROLLBACK;
+END ProcessDateData;
+```
+
+### *Calling the Stored Procedure in SQL Developer*  
+```sql
+DECLARE
+    v_id NUMBER := 101; 
+    v_start_date DATE := TO_DATE('01-JAN-2020', 'DD-MON-YYYY'); 
+    v_end_date DATE := TO_DATE('31-DEC-2023', 'DD-MON-YYYY'); 
+    v_out_id NUMBER;
+    v_out_start_date DATE;
+    v_out_end_date DATE;
+BEGIN
+    -- Calling the procedure
+    ProcessDateData(
+        p_id => v_id, 
+        p_start_date => v_start_date, 
+        p_end_date => v_end_date, 
+        o_id => v_out_id, 
+        o_generated_start_date => v_out_start_date, 
+        o_generated_end_date => v_out_end_date
+    );
+
+    -- Displaying the output values
+    DBMS_OUTPUT.PUT_LINE('Out ID: ' || v_out_id);
+    DBMS_OUTPUT.PUT_LINE('Out Start Date: ' || TO_CHAR(v_out_start_date, 'DD-MON-YYYY'));
+    DBMS_OUTPUT.PUT_LINE('Out End Date: ' || TO_CHAR(v_out_end_date, 'DD-MON-YYYY'));
+END;
+```
+
+#### *Key Highlights*  
+- Uses a **looping mechanism** to process date ranges dynamically.  
+- **Stores** generated records in a **temporary table** for further processing.  
+- Ensures efficient processing of **large datasets** by handling transformations at the database level.  
+- Can be **easily integrated** into Informatica mappings via the **Stored Procedure Transformation**.  
+
 
 ## Folder Structure
 ```
