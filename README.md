@@ -276,3 +276,8 @@ END;
 
 ## License
 This project is open-source under the MIT License.
+
+---
+🔗 **Author**: Naveen Madala  
+📧 **Contact**: madalanaveen9@gmail.com
+🔗 **LinkedIn**: [naveen-madala9](https://www.linkedin.com/in/naveen-madala9/)
