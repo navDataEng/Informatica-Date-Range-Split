@@ -32,7 +32,75 @@ This repository demonstrates three different approaches to transforming date ran
 ### **1. Informatica-Only Approach (Normalizer + Expression Transformation)**  
 - Used **Normalizer Transformation** to generate multiple records for each date range.  
 - Applied **Expression Transformation** to compute and adjust `Start_Date` and `End_Date` for each yearly split.  
-- Filtered out unnecessary records based on the difference between the `Start_Date` and `End_Date`.  
+- Filtered out unnecessary records based on the difference between the `Start_Date` and `End_Date`.
+
+### 1. Normalizer Approach
+
+#### Overview
+This document explains the Normalizer approach used to split date ranges in an Informatica mapping. The approach involves various transformations to achieve the required data transformation while handling limitations.
+
+#### Pipeline Flow
+![Normalizer Flow](images/Date_Split_Normalizer_Mapping.png)
+
+#### Step-by-Step Transformation Details
+
+1. **Source Definition (flat_date2 - Flat File)**
+   - Reads input data from a flat file.
+   - Ensure to configure the file source properties correctly, specifying the `date format` used in the input file.
+
+2. **Source Qualifier (SQ_flat_date2)**
+   - Converts the source data into native Informatica data types.
+
+3. **First Expression Transformation (EXPTRANS)**
+   - Converts `Start_Date` and `End_Date` fields from date to string format since the Normalizer transformation does not accept date types.
+   - Calculates the difference in years between `Start_Date` and `End_Date` using an expression.
+     
+     ```
+     # Years Difference
+     ABS(TO_INTEGER(TO_CHAR(Start_Date,'YYYY'))-TO_INTEGER(TO_CHAR(End_Date,'YYYY')))
+     ```
+
+4. **Normalizer Transformation (NRMTRANS)**
+   - Uses the **occurrence** property to generate multiple records.
+   - **Limitation:** If the occurrence is set to 50 and the `Years_Diff` is more than or equal to 50, this approach will not handle the excess records.
+
+5. **Second Expression Transformation (EXPTRANS1)**
+   - Converts `Start_Date` and `End_Date` back to date format from string.
+   - Generates a sequence number for each record.
+  
+     ```
+     # Squence Number (v_Seq)
+     IIF(ID=previous_ID,v_seq+1,1)
+     ```
+
+6. **Filter Transformation (FILTRANS)**
+   - Filters out unnecessary records based on the `Years_Diff` value, keeping only the required rows for further processing.
+
+     ```
+     # Filter Condition
+     o_seq<=Years_Diff+1
+     ```
+
+7. **Third Expression Transformation (EXPTRANS2)**
+   - Transforms the `New_Start` and `New_End` dates as per the required logic.
+
+     ```
+     # New Start Date
+     IIF(o_seq>1  AND o_seq<=Years_Diff+1,TRUNC(ADD_TO_DATE(Date_ST,'YYYY',o_seq-1),'YYYY'),Date_ST)
+
+     # New End Date
+     IIF(o_seq<Years_Diff+1,LAST_DAY(ADD_TO_DATE(TRUNC(ADD_TO_DATE(Date_ST,'YYYY',o_seq-1),'YYYY'),'MM',11)),Date_ET)
+     ```
+
+8. **Target Definition (FLAT_DATE21 - Oracle)**
+   - The final processed records are written to the target table.
+
+### Key Considerations
+- **Normalizer Limitation:** The occurrence value must be carefully chosen to avoid losing records with `Years_Diff` exceeding the threshold.
+- **Date Handling:** String conversion of date fields is necessary before and after the Normalizer transformation to maintain proper data format.
+- **Filtering Logic:** Ensure the filter transformation retains only the necessary records to optimize performance and avoid unnecessary data processing.
+
+This approach provides a structured way to split date ranges while handling multiple occurrences and transformations effectively.
 
 ### **2. SQL Query Approach (SQL Transformation)**  
 - Wrote an SQL query to handle the expansion of date ranges into yearly records.  
